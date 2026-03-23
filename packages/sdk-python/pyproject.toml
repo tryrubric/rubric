@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "ai-quality-guard"
+name = "rubric-guard"
 version = "0.1.0"
 description = "AI output quality monitoring — Sentry for AI"
 readme = "README.md"
@@ -18,7 +18,7 @@ anthropic = ["anthropic>=0.30.0"]
 all = ["openai>=1.0.0", "anthropic>=0.30.0"]
 
 [project.urls]
-Homepage = "https://github.com/your-repo/ai-quality-guard"
+Homepage = "https://github.com/rubric-dev/rubric"
 
 [tool.hatch.build.targets.wheel]
-packages = ["ai_quality_guard"]
+packages = ["rubric"]

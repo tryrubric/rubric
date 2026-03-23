@@ -29,7 +29,7 @@ const EMAILS = [
 
 ich habe gesehen dass ihr {{Company}} gerade stark wächst — Glückwunsch zur Serie A!
 
-Ich baue AI Quality Guard, ein Tool das LLM-Outputs in Produktion überwacht.
+Ich baue Rubric, ein Tool das LLM-Outputs in Produktion überwacht.
 Das Problem: wenn euer AI-Feature anfängt zu halluzinieren, merkt ihr es erst wenn sich Kunden beschweren.
 
 Wir loggen jeden LLM-Call, bewerten den Output automatisch und alertieren bei Qualitätsdrift.

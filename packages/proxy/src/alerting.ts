@@ -17,7 +17,7 @@ export async function checkDriftAndAlert(apiKeyId: string): Promise<void> {
 
   if (drop >= config.threshold) {
     const message =
-      `[AI Quality Guard] Quality drift detected!\n` +
+      `[Rubric] Quality drift detected!\n` +
       `Previous ${config.window_hours}h avg: ${(scorePrevious * 100).toFixed(1)}%\n` +
       `Current ${config.window_hours}h avg:  ${(scoreCurrent * 100).toFixed(1)}%\n` +
       `Drop: ${(drop * 100).toFixed(1)}% (threshold: ${(config.threshold * 100).toFixed(0)}%)`;

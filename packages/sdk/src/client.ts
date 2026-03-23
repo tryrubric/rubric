@@ -1,13 +1,13 @@
 export interface QualityGuardOptions {
   /** Your Guard API key (starts with gk-) */
   apiKey: string;
-  /** Base URL of your AI Quality Guard proxy. Default: http://localhost:3000 */
+  /** Base URL of your Rubric proxy. Default: http://localhost:3000 */
   baseURL?: string;
 }
 
 /**
  * QualityGuard — wraps any OpenAI-compatible client to route through
- * the AI Quality Guard proxy for logging, scoring, and alerting.
+ * the Rubric proxy for logging, scoring, and alerting.
  */
 export class QualityGuard {
   private readonly apiKey: string;
@@ -20,7 +20,7 @@ export class QualityGuard {
 
   /**
    * Returns a modified copy of an OpenAI client instance that routes
-   * all requests through the AI Quality Guard proxy.
+   * all requests through the Rubric proxy.
    *
    * @example
    * const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });

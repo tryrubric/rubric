@@ -514,7 +514,7 @@ export default function Dashboard() {
           <div>
             <div className="inline-block text-xs font-bold tracking-widest uppercase mb-3 px-2 py-1 rounded"
               style={{ background: "rgba(232,93,44,0.15)", color: "var(--accent)" }}>
-              AI Quality Guard
+              Rubric
             </div>
             <h1 className="text-2xl font-bold">Connect your proxy</h1>
             <p className="text-sm mt-1" style={{ color: "var(--muted)" }}>Enter your Guard API key to view your dashboard.</p>
@@ -561,7 +561,7 @@ export default function Dashboard() {
         <div className="flex items-center gap-3">
           <span className="text-xs font-bold tracking-widest uppercase px-2 py-1 rounded"
             style={{ background: "rgba(232,93,44,0.15)", color: "var(--accent)" }}>
-            AI Quality Guard
+            Rubric
           </span>
           <span className="text-sm font-mono" style={{ color: "var(--muted)" }}>{guardKey.slice(0, 12)}…</span>
         </div>

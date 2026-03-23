@@ -19,7 +19,7 @@ app.route("/api", apiRouter);
 // Root info
 app.get("/", (c) =>
   c.json({
-    name: "AI Quality Guard",
+    name: "Rubric",
     version: "0.1.0",
     endpoints: {
       proxy: "POST /v1/chat/completions  (set baseURL to this server)",
@@ -35,5 +35,5 @@ app.get("/", (c) =>
 const port = parseInt(process.env.PORT ?? "3000");
 
 serve({ fetch: app.fetch, port }, () => {
-  console.log(`AI Quality Guard proxy listening on http://localhost:${port}`);
+  console.log(`Rubric proxy listening on http://localhost:${port}`);
 });

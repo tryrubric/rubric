@@ -356,7 +356,7 @@ const failures: string[] = [];
 const categoryStats: Record<string, { pass: number; fail: number; scores: number[] }> = {};
 const allScores: number[] = [];
 
-console.log(`\n${BOLD}📊 AI Quality Guard — Scorer Test Suite${RESET}\n`);
+console.log(`\n${BOLD}📊 Rubric — Scorer Test Suite${RESET}\n`);
 console.log("─".repeat(70));
 
 for (const tc of CASES) {

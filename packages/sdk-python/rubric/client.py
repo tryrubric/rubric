@@ -1,9 +1,9 @@
 """
-AI Quality Guard — Python SDK
+Rubric — Python SDK
 
 Usage (OpenAI):
     from openai import OpenAI
-    from ai_quality_guard import QualityGuard
+    from rubric import QualityGuard
 
     guard = QualityGuard(api_key="gk-xxx", base_url="http://localhost:3000")
     client = OpenAI(api_key="sk-...", **guard.openai_config())
@@ -13,7 +13,7 @@ Usage (OpenAI):
 
 Usage (Anthropic):
     from anthropic import Anthropic
-    from ai_quality_guard import QualityGuard
+    from rubric import QualityGuard
 
     guard = QualityGuard(api_key="gk-xxx", base_url="http://localhost:3000")
     client = Anthropic(api_key="sk-ant-...", **guard.anthropic_config())
@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Optional
 class QualityGuard:
     """
     Routes any OpenAI- or Anthropic-compatible client through
-    the AI Quality Guard proxy for logging, scoring, and alerting.
+    the Rubric proxy for logging, scoring, and alerting.
     """
 
     def __init__(

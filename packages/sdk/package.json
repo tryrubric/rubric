@@ -1,5 +1,5 @@
 {
-  "name": "ai-quality-guard",
+  "name": "rubric",
   "version": "0.1.0",
   "description": "AI output quality monitoring — Sentry for AI",
   "main": "./dist/index.js",

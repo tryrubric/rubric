@@ -44,19 +44,22 @@ function hasFormatMismatch(prompt: string, output: string): boolean {
   return false;
 }
 
-// Rough relevance: check if output shares key nouns with the last user message
+// Rough relevance: check if output shares key nouns with the last user message.
+// Skips check for short prompts (< 8 meaningful words) to avoid false positives
+// on queries like "Return a JSON object" or "What is 2+2?".
 function hasLowRelevance(userContent: string, output: string): boolean {
   const words = userContent
     .toLowerCase()
     .split(/\W+/)
     .filter((w) => w.length > 5);
 
-  if (words.length === 0) return false;
+  // Not enough signal in the prompt to judge relevance meaningfully
+  if (words.length < 4) return false;
 
   const outputLower = output.toLowerCase();
   const matchCount = words.filter((w) => outputLower.includes(w)).length;
   const ratio = matchCount / words.length;
-  return ratio < 0.1; // less than 10% of key words appear in output
+  return ratio < 0.1;
 }
 
 export function scoreOutput(
@@ -71,8 +74,16 @@ export function scoreOutput(
     low_relevance: false,
   };
 
-  // 1. Too short
-  if (output.trim().length < 20) {
+  // 1. Too short — threshold scales with prompt complexity.
+  // A simple question ("Was ist 2+2?") justifies a short answer.
+  // A complex question needs more substance.
+  const promptWordCount = messages
+    .filter((m) => m.role === "user" || m.role === "system")
+    .map((m) => m.content ?? "")
+    .join(" ")
+    .split(/\s+/).length;
+  const minLength = promptWordCount > 15 ? 60 : 10;
+  if (output.trim().length < minLength) {
     flags.too_short = true;
   }
 

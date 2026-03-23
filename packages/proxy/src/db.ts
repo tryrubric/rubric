@@ -113,12 +113,54 @@ export function insertTrace(trace: Trace): void {
   );
 }
 
-export function listTraces(apiKeyId: string, limit = 50, offset = 0): Trace[] {
+export function listTraces(apiKeyId: string, limit = 50, offset = 0, flagFilter?: string): Trace[] {
+  if (flagFilter) {
+    // Filter traces where the given flag is true in quality_flags JSON
+    return db
+      .prepare<[string, string, number, number], Trace>(
+        `SELECT * FROM traces
+         WHERE api_key_id = ? AND quality_flags LIKE ?
+         ORDER BY created_at DESC LIMIT ? OFFSET ?`
+      )
+      .all(apiKeyId, `%"${flagFilter}":true%`, limit, offset);
+  }
   return db
     .prepare<[string, number, number], Trace>(
       "SELECT * FROM traces WHERE api_key_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
     )
     .all(apiKeyId, limit, offset);
+}
+
+export interface FlagCount {
+  flag: string;
+  count: number;
+  pct: number;
+}
+
+export function getFlagBreakdown(apiKeyId: string, windowHours = 24): FlagCount[] {
+  const since = Date.now() - windowHours * 3600 * 1000;
+  const rows = db
+    .prepare<[string, number], { quality_flags: string | null }>(
+      "SELECT quality_flags FROM traces WHERE api_key_id = ? AND created_at >= ? AND quality_flags IS NOT NULL"
+    )
+    .all(apiKeyId, since);
+
+  const total = rows.length;
+  if (total === 0) return [];
+
+  const counts: Record<string, number> = {};
+  for (const row of rows) {
+    try {
+      const flags = JSON.parse(row.quality_flags!) as Record<string, boolean>;
+      for (const [key, val] of Object.entries(flags)) {
+        if (val) counts[key] = (counts[key] ?? 0) + 1;
+      }
+    } catch { /* skip malformed */ }
+  }
+
+  return Object.entries(counts)
+    .map(([flag, count]) => ({ flag, count, pct: Math.round((count / total) * 100) }))
+    .sort((a, b) => b.count - a.count);
 }
 
 export interface StatsRow {

@@ -5,6 +5,7 @@ import {
   listTraces,
   getStats,
   getTimeseries,
+  getFlagBreakdown,
   upsertAlertConfig,
   getAlertConfig,
   getApiKeyByValue,
@@ -58,12 +59,20 @@ apiRouter.get("/keys", requireAdmin, (c) => {
 // Per-key endpoints (require X-Guard-Key header)
 // ============================================================
 
-// GET /api/traces — list recent traces for this key
+// GET /api/traces — list recent traces for this key (optional ?flag= filter)
 apiRouter.get("/traces", requireGuardKey, (c) => {
   const record = (c as unknown as Record<string, { id: string }>).apiKeyRecord;
   const limit = Math.min(parseInt(c.req.query("limit") ?? "50"), 200);
   const offset = parseInt(c.req.query("offset") ?? "0");
-  return c.json(listTraces(record.id, limit, offset));
+  const flag = c.req.query("flag") ?? undefined;
+  return c.json(listTraces(record.id, limit, offset, flag));
+});
+
+// GET /api/flags — flag breakdown (count + % per flag) for this key
+apiRouter.get("/flags", requireGuardKey, (c) => {
+  const record = (c as unknown as Record<string, { id: string }>).apiKeyRecord;
+  const hours = parseInt(c.req.query("hours") ?? "24");
+  return c.json(getFlagBreakdown(record.id, hours));
 });
 
 // GET /api/stats — aggregated stats for this key

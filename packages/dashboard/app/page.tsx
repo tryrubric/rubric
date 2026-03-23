@@ -44,6 +44,12 @@ interface AlertConfig {
   webhook_url: string | null;
 }
 
+interface FlagCount {
+  flag: string;
+  count: number;
+  pct: number;
+}
+
 // ─── Flag metadata ────────────────────────────────────────────────────────────
 
 const FLAG_META: Record<string, { label: string; description: string; color: string }> = {
@@ -180,6 +186,68 @@ function FlagBadges({ flagsJson }: { flagsJson: string | null }) {
           </span>
         );
       })}
+    </div>
+  );
+}
+
+// ─── Flag breakdown ───────────────────────────────────────────────────────────
+
+function FlagBreakdown({ flags, activeFilter, onFilter }: {
+  flags: FlagCount[];
+  activeFilter: string | null;
+  onFilter: (flag: string | null) => void;
+}) {
+  if (flags.length === 0) {
+    return (
+      <div className="text-sm py-4 text-center" style={{ color: "var(--muted)" }}>
+        No quality issues detected in the last 24h.
+      </div>
+    );
+  }
+
+  const maxCount = flags[0].count;
+
+  return (
+    <div className="flex flex-col gap-2">
+      {flags.map(({ flag, count, pct }) => {
+        const meta = FLAG_META[flag];
+        const color = meta?.color ?? "#ef4444";
+        const isActive = activeFilter === flag;
+
+        return (
+          <button key={flag} onClick={() => onFilter(isActive ? null : flag)}
+            className="w-full text-left rounded-lg px-4 py-3 transition-colors cursor-pointer"
+            style={{
+              background: isActive ? `${color}18` : "transparent",
+              border: `1px solid ${isActive ? color : "var(--border)"}`,
+            }}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-semibold" style={{ color: isActive ? color : "var(--text)" }}>
+                {meta?.label ?? flag.replace(/_/g, " ")}
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono font-bold" style={{ color }}>{count}×</span>
+                <span className="text-xs px-1.5 py-0.5 rounded font-semibold"
+                  style={{ background: `${color}22`, color }}>{pct}%</span>
+              </div>
+            </div>
+            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
+              <div className="h-full rounded-full transition-all"
+                style={{ width: `${(count / maxCount) * 100}%`, background: color }} />
+            </div>
+            {isActive && (
+              <p className="text-xs mt-2" style={{ color: "var(--muted)" }}>{meta?.description}</p>
+            )}
+          </button>
+        );
+      })}
+      {activeFilter && (
+        <button onClick={() => onFilter(null)}
+          className="text-xs px-3 py-1.5 rounded-lg cursor-pointer self-start"
+          style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}>
+          ✕ Clear filter
+        </button>
+      )}
     </div>
   );
 }
@@ -375,6 +443,8 @@ export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [timeseries, setTimeseries] = useState<TimeseriesBucket[]>([]);
   const [traces, setTraces] = useState<Trace[]>([]);
+  const [flagCounts, setFlagCounts] = useState<FlagCount[]>([]);
+  const [flagFilter, setFlagFilter] = useState<string | null>(null);
   const [alertConfig, setAlertConfig] = useState<AlertConfig | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedTrace, setSelectedTrace] = useState<Trace | null>(null);
@@ -386,20 +456,28 @@ export default function Dashboard() {
     if (k) { setGuardKey(k); setBaseURL(u); }
   }, []);
 
-  const fetchAll = useCallback(async (key: string, url: string) => {
+  const fetchTraces = useCallback(async (key: string, url: string, flag: string | null) => {
+    const api = makeApi(key, url);
+    const path = flag ? `/api/traces?limit=50&flag=${encodeURIComponent(flag)}` : "/api/traces?limit=50";
+    const tr = await api.get<Trace[]>(path);
+    setTraces(tr);
+  }, []);
+
+  const fetchAll = useCallback(async (key: string, url: string, flag: string | null = null) => {
     setLoading(true);
     const api = makeApi(key, url);
     try {
-      const [s, ts, tr] = await Promise.all([
+      const [s, ts, fc] = await Promise.all([
         api.get<Stats>("/api/stats?hours=24"),
         api.get<TimeseriesBucket[]>("/api/timeseries?hours=24&buckets=24"),
-        api.get<Trace[]>("/api/traces?limit=50"),
+        api.get<FlagCount[]>("/api/flags?hours=24"),
       ]);
-      setStats(s); setTimeseries(ts); setTraces(tr); setError(""); setConnected(true);
+      setStats(s); setTimeseries(ts); setFlagCounts(fc); setError(""); setConnected(true);
+      await fetchTraces(key, url, flag);
       api.get<AlertConfig>("/api/alerts").then(setAlertConfig).catch(() => {});
     } catch (e) { setError(String(e)); setConnected(false); }
     finally { setLoading(false); }
-  }, []);
+  }, [fetchTraces]);
 
   async function connect() {
     if (!guardKey.startsWith("gk-")) { setError("Key must start with gk-"); return; }
@@ -410,9 +488,15 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!connected) return;
-    intervalRef.current = setInterval(() => fetchAll(guardKey, baseURL), 30_000);
+    intervalRef.current = setInterval(() => fetchAll(guardKey, baseURL, flagFilter), 30_000);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [connected, guardKey, baseURL, fetchAll]);
+  }, [connected, guardKey, baseURL, flagFilter, fetchAll]);
+
+  async function handleFlagFilter(flag: string | null) {
+    setFlagFilter(flag);
+    setSelectedTrace(null);
+    await fetchTraces(guardKey, baseURL, flag);
+  }
 
   // close detail panel on Escape
   useEffect(() => {
@@ -510,10 +594,32 @@ export default function Dashboard() {
         <TrendChart data={timeseries} />
       </div>
 
+      {/* Flag breakdown */}
+      <div className="rounded-xl p-5" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-sm font-semibold">Problems — last 24h</h2>
+            <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>Click a problem to filter traces below</p>
+          </div>
+          {flagFilter && (
+            <span className="text-xs px-2 py-1 rounded-full font-semibold"
+              style={{ background: `${FLAG_META[flagFilter]?.color ?? "#ef4444"}22`, color: FLAG_META[flagFilter]?.color ?? "#ef4444" }}>
+              Filtered: {FLAG_META[flagFilter]?.label ?? flagFilter}
+            </span>
+          )}
+        </div>
+        <FlagBreakdown flags={flagCounts} activeFilter={flagFilter} onFilter={handleFlagFilter} />
+      </div>
+
       {/* Traces table */}
       <div className="rounded-xl overflow-hidden" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
         <div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: "var(--border)" }}>
-          <h2 className="text-sm font-semibold">Recent traces</h2>
+          <div>
+            <h2 className="text-sm font-semibold">
+              {flagFilter ? `Traces with "${FLAG_META[flagFilter]?.label ?? flagFilter}"` : "Recent traces"}
+            </h2>
+            {flagFilter && <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{traces.length} result{traces.length !== 1 ? "s" : ""}</p>}
+          </div>
           <span className="text-xs" style={{ color: "var(--muted)" }}>Click a row to inspect</span>
         </div>
         <div className="overflow-x-auto">

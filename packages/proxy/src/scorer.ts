@@ -130,6 +130,7 @@ function hasLanguageMismatch(promptText: string, output: string): boolean {
 // ─── Verbose padding ──────────────────────────────────────────────────────────
 
 const FILLER_PHRASES = [
+  // EN hedging / meta-commentary
   /it('s| is) important to note that/gi,
   /it('s| is) worth (noting|mentioning) that/gi,
   /as (i|we) (mentioned|stated|noted) (earlier|above|before)/gi,
@@ -138,17 +139,33 @@ const FILLER_PHRASES = [
   /needless to say/gi,
   /it goes without saying/gi,
   /at the end of the day/gi,
+  /i('m| am) here to (help|assist)/gi,
+  /feel free to (ask|reach out)/gi,
+  /i hope (this|that) (helps|was helpful)/gi,
+  // DE hedging / meta-commentary
   /wie (bereits|oben|zuvor) (erwähnt|genannt)/gi,
   /zusammenfassend lässt sich sagen/gi,
   /abschließend (möchte ich|lässt sich)/gi,
+  /ich (bin|stehe) (hier|gerne) (zur|bereit)/gi,
+  /ich hoffe,? (das|dass|dies)/gi,
+  /natürlich (helfe|erkläre|bin) ich/gi,
+  /als (ki|sprachmodell|assistent) (bin|möchte|kann) ich/gi,
+  // Marketing fluff (DE + EN)
+  /bahnbrechen(d|de|des|den)/gi,
+  /revolutionär(e|en|em|es)?/gi,
+  /ultimativ(e|en|em|es)?/gi,
+  /innovativ(e|en|em|es)? (lösung|produkt|ansatz|werkzeug)/gi,
+  /\bgame[- ]changer\b/gi,
+  /cutting[- ]edge/gi,
+  /state[- ]of[- ]the[- ]art/gi,
 ];
 
-function hasVerbosePadding(output: string): boolean {
+function hasVerbosePadding(output: string, promptWordCount?: number): boolean {
   if (output.length < 300) return false;
 
-  // High filler phrase density
+  // 2+ filler phrases = padded
   const fillerCount = FILLER_PHRASES.filter((p) => p.test(output)).length;
-  if (fillerCount >= 3) return true;
+  if (fillerCount >= 2) return true;
 
   // Dominant word repetition: top content word > 20% of all content words
   const words = output.toLowerCase().split(/\W+/).filter((w) => w.length > 4);
@@ -159,29 +176,38 @@ function hasVerbosePadding(output: string): boolean {
     if (topCount / words.length > 0.20) return true;
   }
 
+  // Length vs prompt complexity: very long response to a short prompt = padding
+  // e.g. 400+ words for a ≤10-word prompt ("Was ist eine API?")
+  if (promptWordCount !== undefined && promptWordCount <= 10 && words.length > 300) return true;
+
   return false;
 }
 
 // ─── Hallucination risk ───────────────────────────────────────────────────────
 
-// Questions about history/facts/dates legitimately produce specific numbers
+// Only exempt clearly factual/historical lookups — NOT market-size or productivity claims
 const FACTUAL_QUESTION_PATTERNS = [
-  /wann (wurde|war|ist|hat|kam)/i,
-  /when (was|did|were|is)/i,
-  /wie (viel|viele|alt|groß|lang)/i,
-  /how (many|much|old|long|far)/i,
-  /in welchem jahr/i,
-  /founded|invented|released|born|died|established/i,
-  /gründ|erfund|veröffentlicht|geboren|gestorben/i,
+  /wann (wurde|war|hat|kam)\b/i,          // "wann wurde X gegründet"
+  /when (was|did|were)\b/i,               // "when was X founded"
+  /wie (viele?|alt|lang|hoch|weit)\b/i,  // "wie viele", "wie alt" — NOT "wie groß"
+  /how (many|old|long|far|tall|deep)\b/i,
+  /in welchem jahr\b/i,
+  /\b(founded|invented|born|died|established)\b/i,
+  /\b(gründ|erfund|geboren|gestorben)\w*/i,
 ];
 
 const SPECIFIC_CLAIM_PATTERNS = [
-  /\b\d{1,3}[.,]\d+\s*%/g,   // "97.3%"
+  /\b\d{1,3}[.,]\d+\s*%/g,                          // "97.3%"
+  /\b\d+\s*%\s+(der|von|aller|reduction|increase)/gi, // "30% der Unternehmen"
   /\$\s*\d+[\d,.]*\s*(billion|million|mrd|mio)/gi,
-  /\baccording to [A-Z][a-z]+ (study|report|research)/g,
+  /\d+[\d,.]*\s*(milliarden|millionen)\s*(dollar|euro|usd|eur)/gi,
+  /\baccording to [A-Z][a-z]+ (et al\.?|study|report|research)/g,
+  /\b[A-Z][a-z]+ et al\.?\s*\(\d{4}\)/g,            // "Hinton et al. (2022)"
   /\bstudies show that\b/gi,
-  /\bforschungen zeigen\b/gi,
-  /\blaut (einer )?studie\b/gi,
+  /\bforschungen? zeigen?\b/gi,
+  /\blaut (einer |der )?(studie|untersuchung|analyse)\b/gi,
+  /\beiner studie zufolge\b/gi,
+  /\bmarkt(volumen|größe|wert)\s+(von|beträgt|liegt)\b/gi,
 ];
 
 function hasHallucinationRisk(promptText: string, output: string): boolean {
@@ -246,7 +272,7 @@ export function scoreOutput(messages: ChatMessage[], output: string): ScoringRes
   if (hasLanguageMismatch(promptText, output)) flags.language_mismatch = true;
 
   // 7. Verbose padding
-  if (hasVerbosePadding(output)) flags.verbose_padding = true;
+  if (hasVerbosePadding(output, promptWordCount)) flags.verbose_padding = true;
 
   // 8. Hallucination risk
   if (hasHallucinationRisk(promptText, output)) flags.hallucination_risk = true;

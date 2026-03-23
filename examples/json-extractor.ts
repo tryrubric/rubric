@@ -6,24 +6,24 @@
  * - Edge case: ambiguous or missing data
  *
  * Usage:
- *   OPENAI_API_KEY=sk-... GUARD_KEY=gk-... npx tsx examples/json-extractor.ts
+ *   GROQ_API_KEY=gsk_... GUARD_KEY=gk-... npx tsx examples/json-extractor.ts
  */
 
 import OpenAI from "openai";
 
 const GUARD_KEY = process.env.GUARD_KEY;
-const OPENAI_KEY = process.env.OPENAI_API_KEY;
+const GROQ_KEY = process.env.GROQ_API_KEY;
 const GUARD_URL = process.env.GUARD_URL ?? "http://localhost:3000";
 
-if (!GUARD_KEY || !OPENAI_KEY) {
-  console.error("Missing GUARD_KEY or OPENAI_API_KEY");
+if (!GUARD_KEY || !GROQ_KEY) {
+  console.error("Missing GUARD_KEY or GROQ_API_KEY");
   process.exit(1);
 }
 
 const client = new OpenAI({
-  apiKey: OPENAI_KEY,
+  apiKey: GROQ_KEY,
   baseURL: `${GUARD_URL}/v1`,
-  defaultHeaders: { "x-guard-key": GUARD_KEY },
+  defaultHeaders: { "x-guard-key": GUARD_KEY, "x-provider": "groq" },
 });
 
 interface ExtractedJob {
@@ -71,7 +71,7 @@ async function extract(ad: string, index: number) {
   console.log(`\n📋 Extracting from Ad #${index + 1}...`);
 
   const response = await client.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: "llama-3.3-70b-versatile",
     messages: [
       { role: "system", content: SYSTEM },
       { role: "user", content: ad },

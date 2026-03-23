@@ -5,21 +5,21 @@
  * (subject lines should be short, not padded), repetition detection.
  *
  * Usage:
- *   OPENAI_API_KEY=sk-... GUARD_KEY=gk-... npx tsx examples/email-optimizer.ts
+ *   GROQ_API_KEY=gsk_... GUARD_KEY=gk-... npx tsx examples/email-optimizer.ts
  */
 
 import OpenAI from "openai";
 
 const GUARD_KEY = process.env.GUARD_KEY;
-const OPENAI_KEY = process.env.OPENAI_API_KEY;
+const GROQ_KEY = process.env.GROQ_API_KEY;
 const GUARD_URL = process.env.GUARD_URL ?? "http://localhost:3000";
 
-if (!GUARD_KEY || !OPENAI_KEY) { console.error("Missing GUARD_KEY or OPENAI_API_KEY"); process.exit(1); }
+if (!GUARD_KEY || !GROQ_KEY) { console.error("Missing GUARD_KEY or GROQ_API_KEY"); process.exit(1); }
 
 const client = new OpenAI({
-  apiKey: OPENAI_KEY,
+  apiKey: GROQ_KEY,
   baseURL: `${GUARD_URL}/v1`,
-  defaultHeaders: { "x-guard-key": GUARD_KEY },
+  defaultHeaders: { "x-guard-key": GUARD_KEY, "x-provider": "groq" },
 });
 
 const EMAILS = [
@@ -88,14 +88,14 @@ async function optimizeSubjects(email: typeof EMAILS[0]) {
   console.log(`\n✉ Context: ${email.context}`);
 
   const response = await client.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: "llama-3.3-70b-versatile",
     messages: [
       { role: "system", content: SYSTEM },
       { role: "user", content: email.body },
     ],
   });
 
-  const raw = response.choices[0].message.content ?? "";
+  const raw = (response.choices[0].message.content ?? "").replace(/^```[a-z]*\n?/i, "").replace(/```\s*$/i, "").trim();
   try {
     const result = JSON.parse(raw) as { subjects: Array<{ text: string; type: string; open_rate_score: number }> };
     const sorted = result.subjects.sort((a, b) => b.open_rate_score - a.open_rate_score);

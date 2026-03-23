@@ -40,6 +40,8 @@ proxyRouter.all("/v1/*", async (c) => {
   const headersToForward = new Headers(c.req.raw.headers);
   headersToForward.delete("x-guard-key");
   headersToForward.delete("x-provider");
+  // Don't forward compression — proxy reads body as text, compressed pass-through breaks it
+  headersToForward.delete("accept-encoding");
   // Ensure host matches upstream
   headersToForward.set("host", new URL(providerBase).host);
 
@@ -83,9 +85,14 @@ proxyRouter.all("/v1/*", async (c) => {
     logTrace(apiKeyRecord.id, body, responseText, latencyMs, providerHint).catch(() => {});
   }
 
+  // Strip content-encoding — fetch() already decompressed the body
+  const responseHeaders = new Headers(upstream.headers);
+  responseHeaders.delete("content-encoding");
+  responseHeaders.delete("transfer-encoding");
+
   return new Response(responseText, {
     status: upstream.status,
-    headers: upstream.headers,
+    headers: responseHeaders,
   });
 });
 
@@ -110,9 +117,13 @@ async function handleStreaming(
     accumulateAndLog(logStream, apiKeyId, body, latencyMs).catch(() => {});
   }
 
+  const streamHeaders = new Headers(upstream.headers);
+  streamHeaders.delete("content-encoding");
+  streamHeaders.delete("transfer-encoding");
+
   return new Response(clientStream, {
     status: upstream.status,
-    headers: upstream.headers,
+    headers: streamHeaders,
   });
 }
 

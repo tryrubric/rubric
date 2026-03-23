@@ -37,6 +37,9 @@ export interface QualityFlags {
   refusal: boolean;
   format_mismatch: boolean;
   low_relevance: boolean;
+  language_mismatch: boolean;   // prompt in DE, output in EN (or vice versa)
+  verbose_padding: boolean;     // very long output but low information density
+  hallucination_risk: boolean;  // specific numbers/names not present in prompt
 }
 
 export interface ScoringResult {

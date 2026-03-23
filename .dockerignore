@@ -1,0 +1,8 @@
+node_modules
+packages/*/node_modules
+packages/sdk
+packages/sdk-python
+packages/dashboard
+data
+.env
+*.log

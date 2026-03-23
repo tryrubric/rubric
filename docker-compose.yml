@@ -1,0 +1,30 @@
+services:
+  proxy:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - guard_data:/data
+    environment:
+      # Change this before deploying!
+      ADMIN_SECRET: ${ADMIN_SECRET:-change-me-in-production}
+      PORT: 3000
+      DB_PATH: /data/guard.db
+
+      # Optional: enable LLM-as-judge quality scoring (10% sampling)
+      # JUDGE_API_KEY: ${JUDGE_API_KEY:-}
+      # JUDGE_MODEL: claude-haiku-4-5-20251001
+      # JUDGE_SAMPLE_RATE: "0.1"
+
+      # Optional: default webhook for drift alerts
+      # ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  guard_data:

@@ -1,0 +1,14 @@
+{
+  "name": "ai-quality-guard",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "packages/dashboard"
+  ],
+  "scripts": {
+    "proxy": "npm run dev --workspace=packages/proxy",
+    "build": "npm run build --workspace=packages/proxy && npm run build --workspace=packages/sdk",
+    "dashboard": "npm run dev --workspace=packages/dashboard"
+  }
+}

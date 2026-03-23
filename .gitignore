@@ -1,0 +1,9 @@
+node_modules
+.env
+data/
+dist/
+.next/
+*.log
+packages/dashboard/.next
+packages/proxy/seed.ts
+__pycache__/

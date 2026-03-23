@@ -24,9 +24,18 @@ interface Trace {
   quality_score: number | null;
   latency_ms: number;
   cost_usd: number | null;
+  total_tokens: number | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
   quality_flags: string | null;
+  input: string;
   output: string;
   created_at: number;
+}
+
+interface ChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
 }
 
 interface AlertConfig {
@@ -34,6 +43,19 @@ interface AlertConfig {
   window_hours: number;
   webhook_url: string | null;
 }
+
+// ─── Flag metadata ────────────────────────────────────────────────────────────
+
+const FLAG_META: Record<string, { label: string; description: string; color: string }> = {
+  too_short:         { label: "Too short",         color: "#ef4444", description: "Response is too brief relative to the complexity of the prompt." },
+  repetitive:        { label: "Repetitive",        color: "#f97316", description: "Output repeats sentences, trigrams, or overuses a single word stem." },
+  refusal:           { label: "Refusal",            color: "#ef4444", description: "Model refused or declined to answer the request." },
+  format_mismatch:   { label: "Format mismatch",   color: "#f97316", description: "Prompt asked for JSON/markdown/bullets but output doesn't match." },
+  low_relevance:     { label: "Low relevance",      color: "#ef4444", description: "Response doesn't share enough keywords with the prompt." },
+  language_mismatch: { label: "Language mismatch", color: "#f97316", description: "Response is in a different language than the prompt." },
+  verbose_padding:   { label: "Verbose padding",   color: "#eab308", description: "Response contains filler phrases, marketing fluff, or is too long for the question." },
+  hallucination_risk:{ label: "Hallucination risk",color: "#ef4444", description: "Output contains specific statistics, citations, or percentage claims not grounded in the prompt." },
+};
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
@@ -47,11 +69,7 @@ function makeApi(guardKey: string, baseURL: string) {
   }
 
   async function post<T>(path: string, body: unknown): Promise<T> {
-    const res = await fetch(`${baseURL}${path}`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
+    const res = await fetch(`${baseURL}${path}`, { method: "POST", headers, body: JSON.stringify(body) });
     if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
     return res.json();
   }
@@ -71,6 +89,15 @@ function scoreColor(score: number | null): string {
 function scoreLabel(score: number | null): string {
   if (score === null) return "—";
   return `${(score * 100).toFixed(0)}%`;
+}
+
+function parseFlags(flagsJson: string | null): Record<string, boolean> {
+  if (!flagsJson) return {};
+  try { return JSON.parse(flagsJson); } catch { return {}; }
+}
+
+function activeFlags(flagsJson: string | null): string[] {
+  return Object.entries(parseFlags(flagsJson)).filter(([, v]) => v).map(([k]) => k);
 }
 
 // ─── Trend chart (pure SVG) ───────────────────────────────────────────────────
@@ -98,7 +125,6 @@ function TrendChart({ data }: { data: TimeseriesBucket[] }) {
 
   const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${toX(p.x)} ${toY(p.y)}`).join(" ");
   const fillD = `${pathD} L ${toX(points.at(-1)!.x)} ${PAD.top + chartH} L ${toX(points[0].x)} ${PAD.top + chartH} Z`;
-
   const fmt = (d: Date) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
   return (
@@ -141,19 +167,152 @@ function StatCard({ label, value, sub, accent }: { label: string; value: string;
 // ─── Flag badges ──────────────────────────────────────────────────────────────
 
 function FlagBadges({ flagsJson }: { flagsJson: string | null }) {
-  if (!flagsJson) return null;
-  let flags: Record<string, boolean>;
-  try { flags = JSON.parse(flagsJson); } catch { return null; }
-  const active = Object.entries(flags).filter(([, v]) => v).map(([k]) => k.replace(/_/g, " "));
-  if (!active.length) return <span className="text-xs" style={{ color: "var(--muted)" }}>—</span>;
+  const flags = activeFlags(flagsJson);
+  if (!flags.length) return <span className="text-xs" style={{ color: "var(--muted)" }}>—</span>;
   return (
     <div className="flex flex-wrap gap-1">
-      {active.map((f) => (
-        <span key={f} className="px-2 py-0.5 rounded-full text-[10px] font-semibold" style={{ background: "rgba(239,68,68,0.15)", color: "#ef4444" }}>
-          {f}
-        </span>
-      ))}
+      {flags.map((f) => {
+        const meta = FLAG_META[f];
+        return (
+          <span key={f} className="px-2 py-0.5 rounded-full text-[10px] font-semibold"
+            style={{ background: `${meta?.color ?? "#ef4444"}22`, color: meta?.color ?? "#ef4444" }}>
+            {meta?.label ?? f.replace(/_/g, " ")}
+          </span>
+        );
+      })}
     </div>
+  );
+}
+
+// ─── Trace detail panel ───────────────────────────────────────────────────────
+
+function TraceDetail({ trace, onClose }: { trace: Trace; onClose: () => void }) {
+  const flags = activeFlags(trace.quality_flags);
+  let messages: ChatMessage[] = [];
+  try { messages = JSON.parse(trace.input); } catch { /**/ }
+
+  const roleBg: Record<string, string> = {
+    system: "rgba(99,102,241,0.12)",
+    user: "rgba(232,93,44,0.1)",
+    assistant: "rgba(34,197,94,0.08)",
+  };
+  const roleColor: Record<string, string> = {
+    system: "#818cf8",
+    user: "var(--accent)",
+    assistant: "#22c55e",
+  };
+
+  return (
+    <>
+      {/* backdrop */}
+      <div className="fixed inset-0 z-40" style={{ background: "rgba(0,0,0,0.5)" }} onClick={onClose} />
+
+      {/* panel */}
+      <div className="fixed right-0 top-0 h-full z-50 overflow-y-auto flex flex-col"
+        style={{ width: "min(680px, 100vw)", background: "#0f0f13", borderLeft: "1px solid var(--border)" }}>
+
+        {/* panel header */}
+        <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4"
+          style={{ background: "#0f0f13", borderBottom: "1px solid var(--border)" }}>
+          <div className="flex items-center gap-3">
+            <span className="text-2xl font-bold" style={{ color: scoreColor(trace.quality_score) }}>
+              {scoreLabel(trace.quality_score)}
+            </span>
+            <div>
+              <div className="text-sm font-semibold font-mono">{trace.model}</div>
+              <div className="text-xs" style={{ color: "var(--muted)" }}>
+                {trace.provider} · {new Date(trace.created_at).toLocaleString()}
+              </div>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-xl leading-none cursor-pointer px-2"
+            style={{ color: "var(--muted)" }}>✕</button>
+        </div>
+
+        <div className="flex flex-col gap-6 p-6">
+
+          {/* metrics row */}
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: "Latency", value: `${trace.latency_ms}ms` },
+              { label: "Tokens", value: trace.total_tokens != null ? String(trace.total_tokens) : "—" },
+              { label: "Cost", value: trace.cost_usd != null ? `$${trace.cost_usd.toFixed(6)}` : "—" },
+            ].map(({ label, value }) => (
+              <div key={label} className="rounded-lg px-4 py-3 text-center"
+                style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                <div className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--muted)" }}>{label}</div>
+                <div className="text-base font-bold font-mono">{value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* quality analysis */}
+          <div className="rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+            <div className="px-4 py-3 text-xs font-semibold uppercase tracking-wider"
+              style={{ background: "var(--surface)", color: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
+              Quality analysis
+            </div>
+            <div className="divide-y" style={{ borderColor: "var(--border)" }}>
+              {Object.entries(FLAG_META).map(([key, meta]) => {
+                const fired = flags.includes(key);
+                return (
+                  <div key={key} className="flex items-start gap-3 px-4 py-3">
+                    <span className="mt-0.5 text-sm">{fired ? "✗" : "✓"}</span>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-semibold" style={{ color: fired ? meta.color : "var(--text)" }}>
+                        {meta.label}
+                      </span>
+                      {fired && (
+                        <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{meta.description}</p>
+                      )}
+                    </div>
+                    <span className="text-xs font-semibold shrink-0" style={{ color: fired ? meta.color : "#22c55e" }}>
+                      {fired ? "FLAGGED" : "ok"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* prompt messages */}
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--muted)" }}>
+              Prompt ({messages.length} message{messages.length !== 1 ? "s" : ""})
+            </div>
+            <div className="flex flex-col gap-2">
+              {messages.map((msg, i) => (
+                <div key={i} className="rounded-lg p-4" style={{ background: roleBg[msg.role] ?? "var(--surface)" }}>
+                  <div className="text-[10px] font-bold uppercase tracking-widest mb-2"
+                    style={{ color: roleColor[msg.role] ?? "var(--muted)" }}>
+                    {msg.role}
+                  </div>
+                  <pre className="text-sm whitespace-pre-wrap break-words font-sans" style={{ color: "var(--text)" }}>
+                    {msg.content}
+                  </pre>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* response */}
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--muted)" }}>
+              Response
+            </div>
+            <div className="rounded-lg p-4" style={{ background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.15)" }}>
+              <div className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: "#22c55e" }}>
+                assistant
+              </div>
+              <pre className="text-sm whitespace-pre-wrap break-words font-sans" style={{ color: "var(--text)" }}>
+                {trace.output || <span style={{ color: "var(--muted)" }}>(empty)</span>}
+              </pre>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -196,7 +355,8 @@ function AlertForm({ guardKey, baseURL, initial }: { guardKey: string; baseURL: 
         <input className={inputCls} style={borderStyle} type="url" placeholder="https://hooks.slack.com/..." value={webhook} onChange={(e) => setWebhook(e.target.value)} />
       </div>
       <div className="flex items-center gap-3">
-        <button onClick={save} disabled={saving} className="px-4 py-2 rounded-lg text-sm font-semibold cursor-pointer disabled:opacity-50" style={{ background: "var(--accent)", color: "white" }}>
+        <button onClick={save} disabled={saving} className="px-4 py-2 rounded-lg text-sm font-semibold cursor-pointer disabled:opacity-50"
+          style={{ background: "var(--accent)", color: "white" }}>
           {saving ? "Saving…" : "Save alert config"}
         </button>
         {msg && <span className="text-sm" style={{ color: msg === "Saved!" ? "var(--green)" : "#ef4444" }}>{msg}</span>}
@@ -217,6 +377,7 @@ export default function Dashboard() {
   const [traces, setTraces] = useState<Trace[]>([]);
   const [alertConfig, setAlertConfig] = useState<AlertConfig | null>(null);
   const [loading, setLoading] = useState(false);
+  const [selectedTrace, setSelectedTrace] = useState<Trace | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -232,7 +393,7 @@ export default function Dashboard() {
       const [s, ts, tr] = await Promise.all([
         api.get<Stats>("/api/stats?hours=24"),
         api.get<TimeseriesBucket[]>("/api/timeseries?hours=24&buckets=24"),
-        api.get<Trace[]>("/api/traces?limit=25"),
+        api.get<Trace[]>("/api/traces?limit=50"),
       ]);
       setStats(s); setTimeseries(ts); setTraces(tr); setError(""); setConnected(true);
       api.get<AlertConfig>("/api/alerts").then(setAlertConfig).catch(() => {});
@@ -253,13 +414,22 @@ export default function Dashboard() {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [connected, guardKey, baseURL, fetchAll]);
 
-  // ── Connect screen ────────────────────────────────────────────────────────
+  // close detail panel on Escape
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) { if (e.key === "Escape") setSelectedTrace(null); }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // ── Connect screen ─────────────────────────────────────────────────────────
   if (!connected) {
     return (
       <main className="min-h-screen flex items-center justify-center p-6">
-        <div className="w-full max-w-md rounded-2xl p-8 flex flex-col gap-6" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+        <div className="w-full max-w-md rounded-2xl p-8 flex flex-col gap-6"
+          style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
           <div>
-            <div className="inline-block text-xs font-bold tracking-widest uppercase mb-3 px-2 py-1 rounded" style={{ background: "rgba(232,93,44,0.15)", color: "var(--accent)" }}>
+            <div className="inline-block text-xs font-bold tracking-widest uppercase mb-3 px-2 py-1 rounded"
+              style={{ background: "rgba(232,93,44,0.15)", color: "var(--accent)" }}>
               AI Quality Guard
             </div>
             <h1 className="text-2xl font-bold">Connect your proxy</h1>
@@ -268,25 +438,22 @@ export default function Dashboard() {
           <div className="flex flex-col gap-3">
             <div>
               <label className="block text-xs font-semibold mb-1" style={{ color: "var(--muted)" }}>Proxy URL</label>
-              <input
-                className="w-full rounded-lg px-3 py-2 text-sm bg-[#0f0f13] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
+              <input className="w-full rounded-lg px-3 py-2 text-sm bg-[#0f0f13] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
                 style={{ border: "1px solid var(--border)" }}
-                value={baseURL} onChange={(e) => setBaseURL(e.target.value)} placeholder="http://localhost:3000"
-              />
+                value={baseURL} onChange={(e) => setBaseURL(e.target.value)} placeholder="http://localhost:3000" />
             </div>
             <div>
               <label className="block text-xs font-semibold mb-1" style={{ color: "var(--muted)" }}>Guard API Key</label>
-              <input
-                className="w-full rounded-lg px-3 py-2 text-sm bg-[#0f0f13] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] font-mono"
+              <input className="w-full rounded-lg px-3 py-2 text-sm bg-[#0f0f13] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] font-mono"
                 style={{ border: "1px solid var(--border)" }}
-                value={guardKey} onChange={(e) => setGuardKey(e.target.value)} placeholder="gk-..." autoComplete="off"
-              />
+                value={guardKey} onChange={(e) => setGuardKey(e.target.value)} placeholder="gk-..." autoComplete="off" />
             </div>
           </div>
           {error && (
             <p className="text-sm rounded-lg px-3 py-2" style={{ background: "rgba(239,68,68,0.1)", color: "#ef4444" }}>{error}</p>
           )}
-          <button onClick={connect} className="w-full py-2.5 rounded-lg font-semibold text-sm cursor-pointer" style={{ background: "var(--accent)", color: "white" }}>
+          <button onClick={connect} className="w-full py-2.5 rounded-lg font-semibold text-sm cursor-pointer"
+            style={{ background: "var(--accent)", color: "white" }}>
             Connect
           </button>
         </div>
@@ -294,26 +461,36 @@ export default function Dashboard() {
     );
   }
 
-  // ── Dashboard ─────────────────────────────────────────────────────────────
+  // ── Dashboard ──────────────────────────────────────────────────────────────
   const avgQ = stats?.avg_quality ?? null;
 
   return (
     <main className="min-h-screen p-6 max-w-6xl mx-auto flex flex-col gap-6">
 
+      {/* Trace detail panel */}
+      {selectedTrace && (
+        <TraceDetail trace={selectedTrace} onClose={() => setSelectedTrace(null)} />
+      )}
+
       {/* Header */}
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <span className="text-xs font-bold tracking-widest uppercase px-2 py-1 rounded" style={{ background: "rgba(232,93,44,0.15)", color: "var(--accent)" }}>
+          <span className="text-xs font-bold tracking-widest uppercase px-2 py-1 rounded"
+            style={{ background: "rgba(232,93,44,0.15)", color: "var(--accent)" }}>
             AI Quality Guard
           </span>
           <span className="text-sm font-mono" style={{ color: "var(--muted)" }}>{guardKey.slice(0, 12)}…</span>
         </div>
         <div className="flex items-center gap-2">
           {loading && <span className="text-xs" style={{ color: "var(--muted)" }}>Refreshing…</span>}
-          <button onClick={() => fetchAll(guardKey, baseURL)} className="text-xs px-3 py-1.5 rounded-lg cursor-pointer" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+          <button onClick={() => fetchAll(guardKey, baseURL)}
+            className="text-xs px-3 py-1.5 rounded-lg cursor-pointer"
+            style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
             Refresh
           </button>
-          <button onClick={() => { setConnected(false); localStorage.removeItem("guard_key"); }} className="text-xs px-3 py-1.5 rounded-lg cursor-pointer" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}>
+          <button onClick={() => { setConnected(false); localStorage.removeItem("guard_key"); }}
+            className="text-xs px-3 py-1.5 rounded-lg cursor-pointer"
+            style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}>
             Disconnect
           </button>
         </div>
@@ -335,15 +512,17 @@ export default function Dashboard() {
 
       {/* Traces table */}
       <div className="rounded-xl overflow-hidden" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
-        <div className="px-5 py-4 border-b" style={{ borderColor: "var(--border)" }}>
+        <div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: "var(--border)" }}>
           <h2 className="text-sm font-semibold">Recent traces</h2>
+          <span className="text-xs" style={{ color: "var(--muted)" }}>Click a row to inspect</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr style={{ borderBottom: "1px solid var(--border)" }}>
                 {["Time", "Model", "Quality", "Latency", "Cost", "Flags"].map((h) => (
-                  <th key={h} className="text-left px-4 py-3 text-xs font-semibold tracking-wider uppercase" style={{ color: "var(--muted)" }}>{h}</th>
+                  <th key={h} className="text-left px-4 py-3 text-xs font-semibold tracking-wider uppercase"
+                    style={{ color: "var(--muted)" }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -355,12 +534,23 @@ export default function Dashboard() {
                   </td>
                 </tr>
               ) : traces.map((t) => (
-                <tr key={t.id} className="border-b" style={{ borderColor: "var(--border)" }}>
-                  <td className="px-4 py-3 text-xs font-mono" style={{ color: "var(--muted)" }}>{new Date(t.created_at).toLocaleTimeString()}</td>
+                <tr key={t.id}
+                  onClick={() => setSelectedTrace(t)}
+                  className="border-b transition-colors cursor-pointer"
+                  style={{ borderColor: "var(--border)" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.03)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+                  <td className="px-4 py-3 text-xs font-mono" style={{ color: "var(--muted)" }}>
+                    {new Date(t.created_at).toLocaleTimeString()}
+                  </td>
                   <td className="px-4 py-3 font-mono text-xs">{t.model}</td>
-                  <td className="px-4 py-3 font-bold" style={{ color: scoreColor(t.quality_score) }}>{scoreLabel(t.quality_score)}</td>
+                  <td className="px-4 py-3 font-bold" style={{ color: scoreColor(t.quality_score) }}>
+                    {scoreLabel(t.quality_score)}
+                  </td>
                   <td className="px-4 py-3 text-xs">{t.latency_ms}ms</td>
-                  <td className="px-4 py-3 text-xs font-mono">{t.cost_usd != null ? `$${t.cost_usd.toFixed(6)}` : "—"}</td>
+                  <td className="px-4 py-3 text-xs font-mono">
+                    {t.cost_usd != null ? `$${t.cost_usd.toFixed(6)}` : "—"}
+                  </td>
                   <td className="px-4 py-3"><FlagBadges flagsJson={t.quality_flags} /></td>
                 </tr>
               ))}
